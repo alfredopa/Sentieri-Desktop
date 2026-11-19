@@ -1,0 +1,277 @@
+// ---------------------------------------------------------------------------
+// Waypoint e foto dei percorsi.
+// Si appoggia a app.js (caricato prima): map, cfg, showToast.
+// Punti di aggancio: Media.add / Media.remove / Media.clear.
+// Foto: solo pannello con miniature e visualizzazione a tutto schermo.
+// ---------------------------------------------------------------------------
+(function () {
+  const entries = new Map();   // id percorso -> { color, name, pois, photos, markers }
+  const dataCache = new Map(); // id percorso -> { pois, photos }
+
+  // ---- URL -----------------------------------------------------------------
+
+  const api = (file, params) => {
+    const u = new URL(`${cfg.API_BASE}/${file}`);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    return u;
+  };
+  const photoUrl = (ph, thumb) =>
+    api("foto-file.php", thumb ? { id: ph.id, thumb: 1 } : { id: ph.id }).toString();
+
+  // ---- Utilità DOM ---------------------------------------------------------
+
+  function el(tag, className, text) {
+    const e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function fmtPoiTime(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/.exec(s || "");
+    return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}` : "";
+  }
+  function fmtTaken(ms) {
+    if (ms == null) return "";
+    return new Date(ms).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  // ---- Caricamento dati ----------------------------------------------------
+
+  async function fetchJson(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Errore ${res.status}`);
+    return res.json();
+  }
+
+  async function loadMedia(id) {
+    if (dataCache.has(id)) return dataCache.get(id);
+    const [pois, photos] = await Promise.all([
+      fetchJson(api("poi.php", { id })).catch(err => { console.warn("poi.php:", err); return []; }),
+      fetchJson(api("foto.php", { id })).catch(err => { console.warn("foto.php:", err); return []; })
+    ]);
+    const data = { pois, photos };
+    dataCache.set(id, data);
+    return data;
+  }
+
+  // ---- Marker sulla mappa --------------------------------------------------
+
+  function buildPoiPopup(p) {
+    const box = el("div", "wp-popup");
+    box.appendChild(el("strong", "wp-popup-name", p.name || "Waypoint"));
+    if (p.description) box.appendChild(el("p", "wp-popup-desc", p.description));
+    const bits = [];
+    if (Number.isFinite(p.ele)) bits.push(`${Math.round(p.ele)} m`);
+    const t = fmtPoiTime(p.time);
+    if (t) bits.push(t);
+    if (bits.length) box.appendChild(el("span", "wp-popup-meta", bits.join(" · ")));
+    if (p.audio) {
+      const audio = el("audio", "wp-popup-audio");
+      audio.controls = true;
+      audio.preload = "auto";
+      audio.src = api("voce-file.php", { id: p.id }).toString();
+      box.appendChild(audio);
+    }
+    return box;
+  }
+
+  function addPoiMarker(entry, p) {
+    const wrap = el("div", "wp-marker");
+    wrap.style.setProperty("--c", entry.color);
+    wrap.appendChild(el("span"));
+    wrap.title = p.name || "Waypoint";
+    const content = buildPoiPopup(p);
+    const popup = new maplibregl.Popup({ offset: 12, maxWidth: "260px" })
+      .setDOMContent(content);
+    popup.on("close", () => content.querySelectorAll("audio").forEach((a) => a.pause()));
+    entry.markers.push(
+      new maplibregl.Marker({ element: wrap })
+        .setLngLat([p.lon, p.lat]).setPopup(popup).addTo(map)
+    );
+  }
+
+  // ---- API pubblica verso app.js --------------------------------------------
+
+  async function add(id, color, name) {
+    if (cfg.USE_DEMO_DATA || entries.has(id)) return;
+    const entry = { color, name: name || "Percorso", pois: [], photos: [], markers: [] };
+    entries.set(id, entry);
+
+    const data = await loadMedia(id);
+    if (entries.get(id) !== entry) return; // rimosso mentre si caricava
+
+    entry.pois = data.pois;
+    entry.photos = data.photos;
+    for (const p of entry.pois) addPoiMarker(entry, p);
+    refreshPanel();
+  }
+
+  function remove(id) {
+    const entry = entries.get(id);
+    if (!entry) return;
+    entry.markers.forEach(m => m.remove());
+    entries.delete(id);
+    refreshPanel();
+  }
+
+  function clear() {
+    dataCache.clear();
+    for (const id of [...entries.keys()]) remove(id);
+  }
+
+  window.Media = { add, remove, clear };
+
+  // ---- Pannello foto -------------------------------------------------------
+
+  const fab = el("button", "media-fab hidden");
+  fab.type = "button";
+  const panel = el("div", "media-panel hidden");
+  const panelHead = el("div", "media-panel-head");
+  const panelTitle = el("span", "media-panel-title", "Foto dei percorsi");
+  const panelClose = el("button", "media-close", "×");
+  panelClose.type = "button";
+  panelClose.setAttribute("aria-label", "Chiudi pannello foto");
+  panelHead.append(panelTitle, panelClose);
+  const panelBody = el("div", "media-panel-body");
+  panel.append(panelHead, panelBody);
+  document.body.append(fab, panel);
+
+  function totalPhotos() {
+    let n = 0;
+    for (const e of entries.values()) n += e.photos.length;
+    return n;
+  }
+
+  function refreshPanel() {
+    const n = totalPhotos();
+    fab.textContent = `📷 Foto (${n})`;
+    const panelOpen = !panel.classList.contains("hidden");
+
+    if (n === 0) {
+      fab.classList.add("hidden");
+      panel.classList.add("hidden");
+      panelBody.innerHTML = "";
+      return;
+    }
+    fab.classList.toggle("hidden", panelOpen);
+    if (panelOpen) renderPanelBody();
+  }
+
+  function renderPanelBody() {
+    panelBody.innerHTML = "";
+    for (const entry of entries.values()) {
+      if (!entry.photos.length) continue;
+
+      const group = el("div", "media-group");
+      const head = el("div", "media-group-head");
+      const sw = el("span", "media-swatch");
+      sw.style.background = entry.color;
+      head.append(sw, el("span", "media-group-name", entry.name),
+                  el("span", "media-group-count", `${entry.photos.length} foto`));
+      group.appendChild(head);
+
+      const strip = el("div", "media-strip");
+      entry.photos.forEach((ph, i) => {
+        const b = el("button", "media-thumb");
+        b.type = "button";
+        b.title = fmtTaken(ph.taken_ms) || ph.name;
+        const img = el("img");
+        img.loading = "lazy";
+        img.alt = ph.name;
+        img.src = photoUrl(ph, true);
+        b.appendChild(img);
+        b.addEventListener("click", () => openLightbox(entry.photos, i, entry));
+        strip.appendChild(b);
+      });
+      group.appendChild(strip);
+      panelBody.appendChild(group);
+    }
+  }
+
+  fab.addEventListener("click", () => {
+    panel.classList.remove("hidden");
+    renderPanelBody();
+    fab.classList.add("hidden");
+  });
+  panelClose.addEventListener("click", () => {
+    panel.classList.add("hidden");
+    refreshPanel();
+  });
+
+  // ---- Lightbox a tutto schermo --------------------------------------------
+
+  const lb = el("div", "lb hidden");
+  lb.setAttribute("role", "dialog");
+  lb.setAttribute("aria-modal", "true");
+  const lbImg = el("img", "lb-img");
+  const lbCap = el("div", "lb-caption");
+  const lbPrev = el("button", "lb-nav lb-prev", "‹");
+  const lbNext = el("button", "lb-nav lb-next", "›");
+  const lbClose = el("button", "lb-close", "×");
+  for (const b of [lbPrev, lbNext, lbClose]) b.type = "button";
+  lbPrev.setAttribute("aria-label", "Foto precedente");
+  lbNext.setAttribute("aria-label", "Foto successiva");
+  lbClose.setAttribute("aria-label", "Chiudi");
+  lb.append(lbImg, lbPrev, lbNext, lbClose, lbCap);
+  document.body.appendChild(lb);
+
+  const lbState = { list: [], i: 0, entry: null };
+
+  function showLightbox() {
+    const ph = lbState.list[lbState.i];
+    if (!ph) return;
+    lbImg.src = photoUrl(ph, false);
+    lbImg.alt = ph.name;
+    const when = fmtTaken(ph.taken_ms);
+    lbCap.textContent =
+      [lbState.entry?.name, when, `${lbState.i + 1}/${lbState.list.length}`]
+        .filter(Boolean).join(" · ");
+    const many = lbState.list.length > 1;
+    lbPrev.classList.toggle("hidden", !many);
+    lbNext.classList.toggle("hidden", !many);
+
+    // precarica la foto successiva
+    if (many) new Image().src = photoUrl(lbState.list[(lbState.i + 1) % lbState.list.length], false);
+  }
+
+  function openLightbox(list, index, entry) {
+    lbState.list = list;
+    lbState.i = Math.max(0, index);
+    lbState.entry = entry;
+    lb.classList.remove("hidden");
+    showLightbox();
+  }
+  function closeLightbox() {
+    lb.classList.add("hidden");
+    lbImg.removeAttribute("src");
+  }
+  function step(d) {
+    const n = lbState.list.length;
+    if (n < 2) return;
+    lbState.i = (lbState.i + d + n) % n;
+    showLightbox();
+  }
+
+  lbPrev.addEventListener("click", () => step(-1));
+  lbNext.addEventListener("click", () => step(1));
+  lbClose.addEventListener("click", closeLightbox);
+  lb.addEventListener("click", (e) => { if (e.target === lb) closeLightbox(); });
+
+  document.addEventListener("keydown", (e) => {
+    if (lb.classList.contains("hidden")) return;
+    if (e.key === "Escape") closeLightbox();
+    else if (e.key === "ArrowLeft") step(-1);
+    else if (e.key === "ArrowRight") step(1);
+  });
+
+  // swipe su touch
+  let touchX = null;
+  lb.addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+  lb.addEventListener("touchend", (e) => {
+    if (touchX == null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    touchX = null;
+    if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+  });
+})();

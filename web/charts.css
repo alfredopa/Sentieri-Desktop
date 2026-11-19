@@ -1,0 +1,31 @@
+/* Grafici del dialogo dettagli (charts.js). Usa i colori ereditati dal dialogo. */
+
+.rc-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.rc-tabs[hidden] { display: none; }
+.rc-tab {
+  padding: 5px 12px; font: inherit; font-size: 13px; color: inherit;
+  background: transparent; border: 1px solid rgba(128, 128, 128, .55);
+  border-radius: 14px; cursor: pointer;
+}
+.rc-tab:hover { background: rgba(128, 128, 128, .15); }
+.rc-tab.is-active { background: rgba(47, 107, 142, .22); border-color: #2f6b8e; font-weight: 600; }
+.rc-tab:focus-visible { outline: 2px solid #2f6b8e; outline-offset: 2px; }
+
+.rc-plot { position: relative; touch-action: pan-y; }
+.rc-svg { display: block; width: 100%; height: auto; }
+.rc-cursor { stroke: currentColor; stroke-width: 1; stroke-dasharray: 3 3; opacity: .6; pointer-events: none; }
+
+.rc-tip {
+  position: absolute; top: 4px; z-index: 2; pointer-events: none;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 9px; border-radius: 5px;
+  background: rgba(20, 29, 25, .92); color: #eef0e6;
+  font-size: 12px; line-height: 1.35; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+.rc-tip[hidden] { display: none; }
+
+.rc-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 12px; }
+.rc-chip { display: inline-flex; align-items: center; gap: 5px; }
+.rc-dot { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 50%; }
+.rc-chip .rc-dot { margin-right: 0; }
