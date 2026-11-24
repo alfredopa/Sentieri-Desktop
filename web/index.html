@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentieri — Viewer</title>
+<link rel="stylesheet" href="vendor/maplibre-gl.css" />
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="media.css" />
+<link rel="stylesheet" href="desktop.css" />
+<link rel="stylesheet" href="charts.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <aside id="sidebar">
+    <div class="brand">
+      <img src="4mori.png" alt="Quattro Mori" class="header-logo">
+      <div class="brand-text">
+        <h1>Sentieri</h1>
+        <p id="source-indicator">sorgente: —</p>
+      </div>
+    </div>
+
+    <div class="search-row">
+      <input id="search" type="search" placeholder="Cerca un percorso…" autocomplete="off" />
+    </div>
+
+    <div id="area-filter-banner" class="hidden">
+      <span id="area-filter-count"></span>
+      <button id="area-filter-clear">Mostra tutti</button>
+    </div>
+
+    <div id="route-list" class="route-list">
+      <p class="hint">Caricamento percorsi…</p>
+    </div>
+
+    <div class="sidebar-footer">
+      <span id="route-count">0 percorsi</span>
+      <button id="fit-all" title="Adatta la vista ai percorsi visualizzati">Adatta vista</button>
+    </div>
+  </aside>
+
+  <button id="sidebar-toggle" title="Mostra/nascondi elenco percorsi" aria-label="Mostra/nascondi elenco percorsi">‹</button>
+
+  <main id="map-pane">
+    <div id="map"></div>
+
+    <button id="layers-toggle" title="Livelli mappa" aria-label="Livelli mappa">▤</button>
+    <button id="area-search-toggle" title="Cerca percorsi in un'area" aria-label="Cerca percorsi in un'area">⛶</button>
+
+    <div id="layers-panel" class="hidden">
+      <div class="layers-panel-header">
+        <h2>Livelli mappa</h2>
+        <button id="layers-panel-close" aria-label="Chiudi">×</button>
+      </div>
+      <div id="layers-list"></div>
+    </div>
+
+    <div id="area-search-toolbar" class="hidden">
+      <span id="area-search-hint">Trascina sulla mappa per disegnare l'area</span>
+      <div class="area-search-actions">
+        <button id="area-search-confirm" class="hidden">Cerca in quest'area</button>
+        <button id="area-search-cancel">Annulla</button>
+      </div>
+    </div>
+
+    <div id="tracks-panel" class="hidden">
+      <div class="tracks-panel-header">
+        <h2>Percorsi visualizzati</h2>
+        <button id="clear-tracks" title="Rimuovi tutte le tracce dalla mappa">Svuota</button>
+      </div>
+      <div id="tracks-list"></div>
+    </div>
+
+    <div id="toast" class="hidden"></div>
+  </main>
+
+</div>
+
+<div id="route-modal" class="hidden">
+  <div id="route-modal-backdrop"></div>
+  <div id="route-modal-content">
+    <button id="route-modal-close" aria-label="Chiudi">×</button>
+    <div id="route-modal-swatch"></div>
+    <h2 id="route-modal-name">—</h2>
+    <p id="route-modal-desc" class="route-modal-desc"></p>
+
+    <div id="route-modal-stats" class="route-modal-stats"></div>
+
+    <h3 class="route-modal-subtitle">Profilo altimetrico</h3>
+    <div id="route-modal-chart" class="route-modal-chart"></div>
+  </div>
+</div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script src="vendor/pmtiles.js"></script>
+<script src="desktop.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="charts.js"></script>
+<script src="media.js"></script>
+</body>
+</html>

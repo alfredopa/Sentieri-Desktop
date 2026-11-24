@@ -1,0 +1,71 @@
+{
+  "name": "sentieri-desktop",
+  "productName": "Sentieri",
+  "version": "1.0.0",
+  "description": "Visualizzatore dei percorsi di Sentieri: legge il file SQLite scaricato dall'app Android",
+  "author": "Alfredo",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "predist": "node scripts/check-web.js",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --win --dir"
+  },
+  "dependencies": {
+    "bonjour-service": "^1.4.4",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "it.sentieri.desktop",
+    "productName": "Sentieri",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "web/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Sentieri",
+      "language": "1040",
+      "artifactName": "Sentieri-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "Sentieri-Portable-${version}.exe"
+    }
+  },
+  "allowScripts": {
+    "electron-winstaller@5.4.0": true
+  }
+}
