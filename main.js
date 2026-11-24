@@ -505,6 +505,18 @@ async function chooseFolder(settingKey, title) {
   if (win) win.webContents.reloadIgnoringCache();
 }
 
+async function loadLocalMbtiles() {
+  const win = BrowserWindow.getAllWindows()[0]; // o la tua variabile win/mainWindow
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Seleziona una mappa MBTiles',
+    filters: [{ name: 'MBTiles', extensions: ['mbtiles'] }],
+    properties: ['openFile']
+  });
+  if (result.canceled || !result.filePaths.length) return;
+  win.webContents.send('mbtiles:load', result.filePaths[0]); // invia al renderer
+}
+
+
 function showAbout() {
   dialog.showMessageBox(win, {
     type: 'info',
@@ -531,6 +543,7 @@ function buildMenu() {
         { label: 'Apri database…', accelerator: 'CmdOrCtrl+O', click: () => askOpenDb() },
         { type: 'separator' },
         { label: 'Cartella mappe (MbTiles)…', click: () => chooseFolder('tilesDir', 'Cartella con i file .mbtiles') },
+		{ label: 'Apre mappa (MbTiles)…', click: () => loadLocalMbtiles() },
         { type: 'separator' },
         { label: 'Esci', role: 'quit' },
       ],
@@ -959,6 +972,17 @@ if (!app.requestSingleInstanceLock()) {
         return { ok: false, error: err.message };
       }
     });
+	
+	ipcMain.handle('mbtiles:pick', async (event) => {
+		//const win = BrowserWindow.fromWebContents(event.sender);
+		const result = await dialog.showOpenDialog(win, {
+			title: 'Seleziona una mappa MBTiles',
+			filters: [{ name: 'MBTiles', extensions: ['mbtiles'] }],
+			properties: ['openFile']
+		});
+		if (result.canceled || !result.filePaths.length) return null;
+		return { path: result.filePaths[0] };
+	});
 
     server = createServer({
       webRoot: path.join(__dirname, 'web'),
