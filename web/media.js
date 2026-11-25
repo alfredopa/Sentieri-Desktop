@@ -91,16 +91,18 @@
       return;
     }
     const wrap = el("div", "wp-marker");
-    wrap.style.setProperty("--c", entry.color);
+    wrap.style.setProperty("--c", (entry && entry.color) ? entry.color : "#e63946");
     wrap.appendChild(el("span"));
     wrap.title = p.name || "Waypoint";
     const content = buildPoiPopup(p);
-    const popup = new maplibregl.Popup({ offset: 12, maxWidth: "260px" })
+    const popup = new maplibregl.Popup({ offset: 12, maxWidth: "280px" })
       .setDOMContent(content);
     popup.on("close", () => content.querySelectorAll("audio").forEach((a) => a.pause()));
     const marker = new maplibregl.Marker({ element: wrap })
       .setLngLat([p.lon, p.lat]).setPopup(popup).addTo(map);
-    entry.markers.push(marker);
+    if (entry && Array.isArray(entry.markers)) {
+      entry.markers.push(marker);
+    }
     console.log(`[Media.js] Marker di "${p.name}" inserito sulla mappa MapLibre!`);
   }
 
@@ -136,7 +138,7 @@
     for (const id of [...entries.keys()]) remove(id);
   }
 
-  window.Media = { add, remove, clear };
+  window.Media = { add, remove, clear, addPoiMarker };
 
   // ---- Pannello foto -------------------------------------------------------
 

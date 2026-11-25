@@ -20,6 +20,7 @@ let server = null;
 let port = 0;
 let settings = null;
 let bonjour = null;
+let activeMbtilesFilePath = null;
 
 let db = null;
 let api = null;
@@ -505,17 +506,31 @@ async function chooseFolder(settingKey, title) {
   if (win) win.webContents.reloadIgnoringCache();
 }
 
-async function loadLocalMbtiles() {
-  const win = BrowserWindow.getAllWindows()[0]; // o la tua variabile win/mainWindow
-  const result = await dialog.showOpenDialog(win, {
-    title: 'Seleziona una mappa MBTiles',
-    filters: [{ name: 'MBTiles', extensions: ['mbtiles'] }],
+async function loadLocalGpx() {
+  const targetWin = win || BrowserWindow.getAllWindows()[0];
+  if (!targetWin) return;
+
+  const result = await dialog.showOpenDialog(targetWin, {
+    title: 'Seleziona una traccia GPX',
+    filters: [{ name: 'Traccia GPX', extensions: ['gpx', 'xml'] }],
     properties: ['openFile']
   });
-  if (result.canceled || !result.filePaths.length) return;
-  win.webContents.send('mbtiles:load', result.filePaths[0]); // invia al renderer
-}
 
+  if (result.canceled || !result.filePaths.length) return;
+  const filePath = result.filePaths[0];
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const fileName = path.basename(filePath);
+    console.log(`[GPX] Traccia letta con successo da ${filePath} (${content.length} byte)`);
+
+    if (targetWin.webContents) {
+      targetWin.webContents.send('gpx:load-data', { fileName, content });
+    }
+  } catch (err) {
+    console.error('[GPX] Errore lettura file GPX:', err.message);
+  }
+}
 
 function showAbout() {
   dialog.showMessageBox(win, {
@@ -542,8 +557,10 @@ function buildMenu() {
       submenu: [
         { label: 'Apri database…', accelerator: 'CmdOrCtrl+O', click: () => askOpenDb() },
         { type: 'separator' },
+        { label: 'Apri traccia GPX…', accelerator: 'CmdOrCtrl+G', click: () => loadLocalGpx() },
+        { type: 'separator' },
         { label: 'Cartella mappe (MbTiles)…', click: () => chooseFolder('tilesDir', 'Cartella con i file .mbtiles') },
-		{ label: 'Apre mappa (MbTiles)…', click: () => loadLocalMbtiles() },
+        { label: 'Apre mappa (MbTiles)…', click: () => loadLocalMbtiles() },
         { type: 'separator' },
         { label: 'Esci', role: 'quit' },
       ],
@@ -599,8 +616,12 @@ function dbFromArgv(argv) {
 }
 
 const mbtilesCache = new Map();
-function getMbtilesDb(fileName) {
-  const fullPath = path.join(tilesDir(), fileName);
+function getMbtilesDb(targetPath) {
+  if (!targetPath) return null;
+  let fullPath = targetPath;
+  if (!path.isAbsolute(fullPath)) {
+    fullPath = path.join(tilesDir(), targetPath);
+  }
   console.log('Cerco file MBTiles in:', fullPath);
   if (mbtilesCache.has(fullPath)) return mbtilesCache.get(fullPath);
   if (!fs.existsSync(fullPath)) {
@@ -984,6 +1005,10 @@ if (!app.requestSingleInstanceLock()) {
 		return { path: result.filePaths[0] };
 	});
 
+	ipcMain.on('mbtiles:load', (event, path) => {
+		event.sender.send('mbtiles:load', path);
+	});
+
     server = createServer({
       webRoot: path.join(__dirname, 'web'),
       ctx: { status: () => status, api: () => api, tilesDir },
@@ -994,9 +1019,16 @@ if (!app.requestSingleInstanceLock()) {
       const textHeaders = { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' };
       try {
         const url = new URL(request.url);
-        const fileName = decodeURIComponent(url.hostname);
-        const dir = tilesDir();
-        const fullPath = path.join(dir, fileName);
+        let fileRef = decodeURIComponent(url.hostname || url.host || '');
+
+        let fullPath = activeMbtilesFilePath;
+        if (!fullPath || !fs.existsSync(fullPath)) {
+          if (path.isAbsolute(fileRef) && fs.existsSync(fileRef)) {
+            fullPath = fileRef;
+          } else {
+            fullPath = path.join(tilesDir(), fileRef);
+          }
+        }
 
         const parts = url.pathname.replace(/^\/+/, '').split('/');
         const z = parseInt(parts[0], 10);
@@ -1004,16 +1036,18 @@ if (!app.requestSingleInstanceLock()) {
         const y = parseInt(parts[2], 10);
 
         if (!fs.existsSync(fullPath)) {
-          return new Response(`FILE NON TROVATO.\nPercorso cercato: ${fullPath}`, { status: 200, headers: textHeaders });
+          console.error('[MBTiles Protocol] File non trovato:', fullPath);
+          return new Response(`FILE MBTILES NON TROVATO.\nPercorso cercato: ${fullPath}`, { status: 200, headers: textHeaders });
         }
 
-        const mdb = getMbtilesDb(fileName);
+        const mdb = getMbtilesDb(fullPath);
         if (!mdb) {
+          console.error('[MBTiles Protocol] Impossibile aprire SQLite per:', fullPath);
           return new Response(`IMPOSSIBILE APRIRE SQLITE.\nFile: ${fullPath}`, { status: 200, headers: textHeaders });
         }
 
         if (Number.isNaN(z) || Number.isNaN(x) || Number.isNaN(y)) {
-          return new Response(`COORDINATE NON VALIDE.\nURL: ${request.url}\nParts: ${JSON.stringify(parts)}`, { status: 200, headers: textHeaders });
+          return new Response(`COORDINATE NON VALIDE.\nURL: ${request.url}`, { status: 200, headers: textHeaders });
         }
 
         const tmsY = (Math.pow(2, z) - 1) - y;
@@ -1031,9 +1065,9 @@ if (!app.requestSingleInstanceLock()) {
           });
         }
 
-        return new Response(`TESSERA NON PRESENTE NEL DB.\nFile: ${fullPath}\nCercato: z=${z}, x=${x}, tmsY=${tmsY} (y=${y})`, { status: 200, headers: textHeaders });
+        return new Response(`TESSERA NON PRESENTE NEL DB.\nFile: ${fullPath}`, { status: 200, headers: textHeaders });
       } catch (err) {
-        return new Response(`ERRORE ECCEZIONE:\n${err.stack || err.message}`, { status: 200, headers: textHeaders });
+        return new Response(`ERRORE ECCEZIONE MBTILES:\n${err.stack || err.message}`, { status: 200, headers: textHeaders });
       }
     });
 
