@@ -92,14 +92,29 @@
     }
     const wrap = el("div", "wp-marker");
     wrap.style.setProperty("--c", (entry && entry.color) ? entry.color : "#e63946");
-    wrap.appendChild(el("span"));
-    wrap.title = p.name || "Waypoint";
+    wrap.style.cursor = "pointer";
+    wrap.setAttribute("title", p.name || "Waypoint");
+
+    const span = el("span");
+    span.style.pointerEvents = "none";
+    wrap.appendChild(span);
+
+    // Mousedown imposta il flag temporaneo evitando che la traccia sottostante gestisca il click
+    wrap.addEventListener("mousedown", () => {
+      window._waypointJustClicked = true;
+      setTimeout(() => { window._waypointJustClicked = false; }, 300);
+    });
+
     const content = buildPoiPopup(p);
     const popup = new maplibregl.Popup({ offset: 12, maxWidth: "280px" })
       .setDOMContent(content);
     popup.on("close", () => content.querySelectorAll("audio").forEach((a) => a.pause()));
+
     const marker = new maplibregl.Marker({ element: wrap })
-      .setLngLat([p.lon, p.lat]).setPopup(popup).addTo(map);
+      .setLngLat([p.lon, p.lat])
+      .setPopup(popup)
+      .addTo(map);
+
     if (entry && Array.isArray(entry.markers)) {
       entry.markers.push(marker);
     }

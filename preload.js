@@ -15,6 +15,14 @@ contextBridge.exposeInMainWorld('desktop', {
   // Ricezione contenuto traccia GPX dal menu o dialog
   onLoadGpxData: (cb) => ipcRenderer.on('gpx:load-data', (_e, data) => cb(data)),
 
+  // Download Mappe dal server NAS
+  nasGetToken: () => ipcRenderer.invoke('nas-get-token'),
+  nasSaveToken: (token) => ipcRenderer.invoke('nas-save-token', token),
+  nasListMaps: () => ipcRenderer.invoke('nas-list-maps'),
+  nasDownloadMap: (fileName) => ipcRenderer.invoke('nas-download-map', { fileName }),
+  onOpenMapDownload: (cb) => ipcRenderer.on('map-download:open', () => cb()),
+  onMapDownloadProgress: (cb) => ipcRenderer.on('map-download:progress', (_e, data) => cb(data)),
+
   // Sincronizzazione con lo smartphone Android via mDNS / HTTP REST
   findAndroidDevice: (options) => ipcRenderer.invoke('find-android-device', options),
   syncFetchAndroidData: (options) => ipcRenderer.invoke('sync-fetch-android-data', options),

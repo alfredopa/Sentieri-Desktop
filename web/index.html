@@ -94,6 +94,39 @@
   </div>
 </div>
 
+<div id="map-download-modal" class="hidden" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;align-items:center;justify-content:center">
+  <div id="map-download-backdrop" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5)"></div>
+  <div id="map-download-content" style="background:#fff;border-radius:8px;padding:22px;max-width:560px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 4px 25px rgba(0,0,0,0.3);position:relative;z-index:2;margin:auto;font-family:system-ui,-apple-system,sans-serif">
+    <button id="map-download-close" style="position:absolute;top:12px;right:12px;background:none;border:none;font-size:24px;cursor:pointer;color:#666" aria-label="Chiudi">×</button>
+    <h2 style="margin-top:0;font-size:18px;color:#1d2318;display:flex;align-items:center;gap:8px">🗺 Download Mappe dal Server NAS</h2>
+    <p style="font-size:13px;color:#5a6350;margin-bottom:15px">Connessione sicura a <strong>https://sentieriap.duckdns.org</strong></p>
+
+    <div id="map-download-token-section" style="margin-bottom:15px;padding:12px;background:#f5f7f2;border-radius:6px;border:1px solid #e0e5d8">
+      <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:#333">Token NAS di Autenticazione (Cifrato con safeStorage / DPAPI):</label>
+      <div style="display:flex;gap:8px">
+        <input type="password" id="map-download-token-input" placeholder="Inserisci il token NAS..." style="flex:1;padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:12px">
+        <button id="map-download-token-save" style="padding:7px 14px;background:#386641;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600">Salva Token</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span style="font-size:13px;font-weight:600;color:#1d2318">Mappe Disponibili sul Server:</span>
+      <button id="map-download-refresh" style="padding:5px 10px;background:#eef0e6;color:#333;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">🔄 Aggiorna Lista</button>
+    </div>
+
+    <div id="map-download-status" style="font-size:12px;margin-bottom:10px;color:#386641;font-weight:600"></div>
+
+    <div id="map-download-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:15px;max-height:220px;overflow-y:auto;padding-right:4px"></div>
+
+    <div id="map-download-progress-box" class="hidden" style="margin-top:10px;padding:12px;background:#f8f9fa;border-radius:6px;border:1px solid #e0e0e0">
+      <div id="map-download-progress-text" style="font-size:12px;font-weight:600;margin-bottom:6px;color:#333">Preparazione download...</div>
+      <div style="width:100%;background:#e0e0e0;border-radius:4px;height:12px;overflow:hidden">
+        <div id="map-download-progress-bar" style="width:0%;background:#386641;height:100%;transition:width 0.2s"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="vendor/maplibre-gl.js"></script>
 <script src="vendor/pmtiles.js"></script>
 <script src="desktop.js"></script>

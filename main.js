@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session, protocol } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session, protocol, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
@@ -532,6 +532,29 @@ async function loadLocalGpx() {
   }
 }
 
+async function loadLocalMbtiles() {
+  const targetWin = win || BrowserWindow.getAllWindows()[0];
+  if (!targetWin) return;
+
+  const result = await dialog.showOpenDialog(targetWin, {
+    title: 'Seleziona una mappa MBTiles',
+    filters: [{ name: 'MBTiles', extensions: ['mbtiles', 'sqlite', 'db'] }],
+    properties: ['openFile']
+  });
+
+  if (result.canceled || !result.filePaths.length) return;
+  const filePath = result.filePaths[0];
+
+  activeMbtilesFilePath = filePath;
+  console.log(`[MBTiles] Mappa attiva impostata su: ${filePath}`);
+
+  if (targetWin.webContents) {
+    targetWin.webContents.send('mbtiles:load-file', filePath);
+    targetWin.webContents.send('mbtiles:load', filePath);
+  }
+}
+
+
 function showAbout() {
   dialog.showMessageBox(win, {
     type: 'info',
@@ -550,6 +573,13 @@ function showAbout() {
   });
 }
 
+function openMapDownloadModal() {
+  const targetWin = win || BrowserWindow.getAllWindows()[0];
+  if (targetWin && targetWin.webContents) {
+    targetWin.webContents.send('map-download:open');
+  }
+}
+
 function buildMenu() {
   const template = [
     {
@@ -561,6 +591,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Cartella mappe (MbTiles)…', click: () => chooseFolder('tilesDir', 'Cartella con i file .mbtiles') },
         { label: 'Apre mappa (MbTiles)…', click: () => loadLocalMbtiles() },
+        { label: 'Download Mappe dal Server…', click: () => openMapDownloadModal() },
         { type: 'separator' },
         { label: 'Esci', role: 'quit' },
       ],
@@ -669,6 +700,139 @@ if (!app.requestSingleInstanceLock()) {
     // Handler IPC esistenti
     ipcMain.handle('open-db-dialog', () => askOpenDb());
     ipcMain.handle('open-db-path', (_e, file) => openDatabasePath(file));
+
+    // ---- Gestione Token Cifrato NAS e Download Mappe ----
+    function saveNasToken(token) {
+      if (!token) {
+        settings.set('nasTokenEncrypted', null);
+        settings.set('nasToken', null);
+        return;
+      }
+      try {
+        if (safeStorage && safeStorage.isEncryptionAvailable()) {
+          const encrypted = safeStorage.encryptString(token);
+          settings.set('nasTokenEncrypted', encrypted.toString('base64'));
+          settings.set('nasToken', null);
+        } else {
+          settings.set('nasToken', token);
+        }
+      } catch (err) {
+        console.error('[NAS] Errore salvataggio token cifrato:', err.message);
+        settings.set('nasToken', token);
+      }
+    }
+
+    function getNasToken() {
+      const encBase64 = settings.get('nasTokenEncrypted');
+      if (encBase64 && safeStorage && safeStorage.isEncryptionAvailable()) {
+        try {
+          const buffer = Buffer.from(encBase64, 'base64');
+          return safeStorage.decryptString(buffer);
+        } catch (err) {
+          console.error('[NAS] Errore decifratura token safeStorage:', err.message);
+        }
+      }
+      return settings.get('nasToken', '');
+    }
+
+    ipcMain.handle('nas-get-token', () => getNasToken());
+    ipcMain.handle('nas-save-token', (_e, token) => {
+      saveNasToken(token);
+      return { ok: true };
+    });
+
+    ipcMain.handle('nas-list-maps', async () => {
+      try {
+        const token = getNasToken();
+        if (!token) throw new Error('Token NAS mancante. Inserisci e salva il token prima di richiedere l’elenco delle mappe.');
+
+        const nasUrl = 'https://sentieriap.duckdns.org/files/api/list?path=Cloud';
+        console.log('[NAS] Richiesta lista mappe a:', nasUrl);
+
+        const res = await fetch(nasUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) throw new Error('Autenticazione fallita (401): verifica il token inserito.');
+          throw new Error(`Errore HTTP server NAS: ${res.status}`);
+        }
+
+        const data = await res.json();
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        const files = entries
+          .filter(e => !e.isDir && e.name && /\.(mbtiles|map|zip|sqlite|db)$/i.test(e.name))
+          .map(e => ({
+            name: e.name,
+            size: e.size || 0,
+            sizeMb: e.size ? (e.size / (1024 * 1024)).toFixed(1) : '?'
+          }));
+
+        return { ok: true, files };
+      } catch (err) {
+        console.error('[NAS] Errore lista mappe:', err.message);
+        return { ok: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('nas-download-map', async (event, { fileName }) => {
+      try {
+        const token = getNasToken();
+        if (!token) throw new Error('Token NAS mancante.');
+
+        const encodedName = encodeURIComponent(fileName);
+        const fileUrl = `https://sentieriap.duckdns.org/files/api/file?path=Cloud/${encodedName}`;
+        const targetDir = tilesDir();
+
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        const targetFilePath = path.join(targetDir, fileName);
+        console.log(`[NAS] Inizio download mappa "${fileName}" in: ${targetFilePath}`);
+
+        const res = await fetch(fileUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!res.ok) throw new Error(`Errore HTTP download ${res.status}`);
+
+        const totalBytes = parseInt(res.headers.get('content-length') || '0', 10);
+        let downloadedBytes = 0;
+
+        const fileStream = fs.createWriteStream(targetFilePath);
+        const reader = res.body.getReader();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          fileStream.write(Buffer.from(value));
+          downloadedBytes += value.length;
+
+          const progress = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : -1;
+          event.sender.send('map-download:progress', {
+            fileName,
+            progress,
+            downloadedBytes,
+            totalBytes
+          });
+        }
+
+        fileStream.end();
+        console.log(`[NAS] Download completato per ${fileName} (${downloadedBytes} byte)`);
+
+        return { ok: true, filePath: targetFilePath };
+      } catch (err) {
+        console.error('[NAS] Errore download mappa:', err.message);
+        return { ok: false, error: err.message };
+      }
+    });
 
     // Handler IPC per la ricerca, verifica e sincronizzazione del dispositivo Android via Bonjour / REST API
     ipcMain.handle('find-android-device', async (_e, { timeoutMs = 8000, healthPath = '/api/v1/info', baseUrl = null } = {}) => {

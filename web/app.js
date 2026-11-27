@@ -124,9 +124,10 @@ function loadMbtilesFileOnMap(filePath) {
     if (map.getLayer(layerId)) map.removeLayer(layerId);
     if (map.getSource(sourceId)) map.removeSource(sourceId);
 
+    const cacheBuster = Date.now();
     map.addSource(sourceId, {
       type: "raster",
-      tiles: [`mbtiles://${encodeURIComponent(fileName)}/{z}/{x}/{y}`],
+      tiles: [`mbtiles://${encodeURIComponent(filePath)}/{z}/{x}/{y}?t=${cacheBuster}`],
       tileSize: 256
     });
 
@@ -137,6 +138,8 @@ function loadMbtilesFileOnMap(filePath) {
       source: sourceId,
       paint: { "raster-opacity": 1.0 }
     }, beforeLayer);
+
+    map.triggerRepaint();
 
     showToast(`Mappa caricata: ${fileName}`);
     console.log(`[Map] Mappa MBTiles caricata con successo da: ${filePath}`);
@@ -175,6 +178,8 @@ function removeGpxTrackFromMap(fileName = null, lineLayerId = "gpx-imported-line
     window._currentGpxMouseEnter = null;
     window._currentGpxMouseLeave = null;
   }
+  if (map.getLayer("gpx-imported-direction")) map.removeLayer("gpx-imported-direction");
+  if (map.getLayer("gpx-imported-direction-halo")) map.removeLayer("gpx-imported-direction-halo");
   if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
   if (map.getSource(sourceId)) map.removeSource(sourceId);
   if (window._currentGpxMarkers) {
@@ -288,6 +293,11 @@ function parseAndRenderGpx(fileName, gpxText) {
       }
     });
 
+    // Registra l'icona della freccia se non ancora presente nello stile
+    if (!map.getImage("arrow-icon")) {
+      map.addImage("arrow-icon", createArrowIcon(), { sdf: true });
+    }
+
     map.addLayer({
       id: lineLayerId,
       type: "line",
@@ -300,11 +310,52 @@ function parseAndRenderGpx(fileName, gpxText) {
       }
     });
 
+    // Aggiunge l'alone bianco per le frecce direzionali GPX
+    map.addLayer({
+      id: "gpx-imported-direction-halo",
+      type: "symbol",
+      source: sourceId,
+      layout: {
+        "symbol-placement": "line",
+        "symbol-spacing": 110,
+        "icon-image": "arrow-icon",
+        "icon-size": 0.85,
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true
+      },
+      paint: {
+        "icon-color": "#eef0e6",
+        "icon-opacity": 0.9
+      }
+    });
+
+    // Aggiunge le frecce direzionali rosse lungo la traccia GPX
+    map.addLayer({
+      id: "gpx-imported-direction",
+      type: "symbol",
+      source: sourceId,
+      layout: {
+        "symbol-placement": "line",
+        "symbol-spacing": 110,
+        "icon-image": "arrow-icon",
+        "icon-size": 0.55,
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true
+      },
+      paint: {
+        "icon-color": "#e63946"
+      }
+    });
+
     // Registrazione singola degli eventi mouse per il layer della traccia GPX
     window._currentGpxMouseEnter = () => { map.getCanvas().style.cursor = "pointer"; };
     window._currentGpxMouseLeave = () => { map.getCanvas().style.cursor = ""; };
 
     window._currentGpxClickHandler = (e) => {
+      if (window._waypointJustClicked) return;
+
       if (window._currentGpxPopup) {
         window._currentGpxPopup.remove();
         window._currentGpxPopup = null;
@@ -461,7 +512,7 @@ function attachRouteLayers() {
     map.on("mouseleave", "active-routes-line", () => { map.getCanvas().style.cursor = ""; });
 
     map.on("click", "active-routes-line", (e) => {
-      if (!e.features || !e.features[0]) return;
+      if (!e.features || !e.features[0] || window._waypointJustClicked) return;
 
       if (window._currentGpxPopup) {
         window._currentGpxPopup.remove();
