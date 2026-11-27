@@ -161,42 +161,11 @@ if (window.desktop && typeof window.desktop.onLoadMbtiles === "function") {
 }
 
 // ---------------------------------------------------------------------------
-// Caricamento e visualizzazione file GPX locali sulla mappa
+// Caricamento e visualizzazione file GPX locali nella memoria comune (state.activeRoutes)
 // ---------------------------------------------------------------------------
-function removeGpxTrackFromMap(fileName = null, lineLayerId = "gpx-imported-line", sourceId = "gpx-imported-source") {
-  if (window._currentGpxPopup) {
-    window._currentGpxPopup.remove();
-    window._currentGpxPopup = null;
-  }
-  if (window._currentGpxClickHandler) {
-    try {
-      map.off("click", lineLayerId, window._currentGpxClickHandler);
-      map.off("mouseenter", lineLayerId, window._currentGpxMouseEnter);
-      map.off("mouseleave", lineLayerId, window._currentGpxMouseLeave);
-    } catch {}
-    window._currentGpxClickHandler = null;
-    window._currentGpxMouseEnter = null;
-    window._currentGpxMouseLeave = null;
-  }
-  if (map.getLayer("gpx-imported-direction")) map.removeLayer("gpx-imported-direction");
-  if (map.getLayer("gpx-imported-direction-halo")) map.removeLayer("gpx-imported-direction-halo");
-  if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
-  if (map.getSource(sourceId)) map.removeSource(sourceId);
-  if (window._currentGpxMarkers) {
-    window._currentGpxMarkers.forEach(m => m.remove());
-    window._currentGpxMarkers = [];
-  }
-  if (fileName) {
-    showToast(`Traccia "${fileName}" rimossa dalla mappa.`);
-  }
-}
-
 function parseAndRenderGpx(fileName, gpxText) {
   if (!map || !gpxText) return;
   try {
-    // Svuota completamente qualsiasi traccia, popup e listener GPX precedente
-    removeGpxTrackFromMap();
-
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(gpxText, "text/xml");
 
@@ -278,140 +247,65 @@ function parseAndRenderGpx(fileName, gpxText) {
     const distKm = Math.round((totalLengthM / 1000) * 10) / 10;
     const gainM = Math.round(elevationGainM);
 
-    const sourceId = "gpx-imported-source";
-    const lineLayerId = "gpx-imported-line";
+    // ID univoco per la traccia GPX e colore dalla tavolozza comune
+    const gpxRouteId = "gpx-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+    const usedColors = new Set([...state.activeRoutes.values()].map(v => v.color));
+    const color = assignColor(usedColors);
 
-    map.addSource(sourceId, {
-      type: "geojson",
-      data: {
-        type: "Feature",
-        properties: { name: fileName },
-        geometry: {
-          type: "LineString",
-          coordinates: coordinates
-        }
-      }
-    });
-
-    // Registra l'icona della freccia se non ancora presente nello stile
-    if (!map.getImage("arrow-icon")) {
-      map.addImage("arrow-icon", createArrowIcon(), { sdf: true });
-    }
-
-    map.addLayer({
-      id: lineLayerId,
-      type: "line",
-      source: sourceId,
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": "#e63946",
-        "line-width": 5,
-        "line-opacity": 0.95
-      }
-    });
-
-    // Aggiunge l'alone bianco per le frecce direzionali GPX
-    map.addLayer({
-      id: "gpx-imported-direction-halo",
-      type: "symbol",
-      source: sourceId,
-      layout: {
-        "symbol-placement": "line",
-        "symbol-spacing": 110,
-        "icon-image": "arrow-icon",
-        "icon-size": 0.85,
-        "icon-rotation-alignment": "map",
-        "icon-allow-overlap": true,
-        "icon-ignore-placement": true
+    const feature = {
+      type: "Feature",
+      properties: {
+        id: gpxRouteId,
+        name: fileName,
+        isGpx: true
       },
-      paint: {
-        "icon-color": "#eef0e6",
-        "icon-opacity": 0.9
+      geometry: {
+        type: "LineString",
+        coordinates: coordinates
       }
-    });
-
-    // Aggiunge le frecce direzionali rosse lungo la traccia GPX
-    map.addLayer({
-      id: "gpx-imported-direction",
-      type: "symbol",
-      source: sourceId,
-      layout: {
-        "symbol-placement": "line",
-        "symbol-spacing": 110,
-        "icon-image": "arrow-icon",
-        "icon-size": 0.55,
-        "icon-rotation-alignment": "map",
-        "icon-allow-overlap": true,
-        "icon-ignore-placement": true
-      },
-      paint: {
-        "icon-color": "#e63946"
-      }
-    });
-
-    // Registrazione singola degli eventi mouse per il layer della traccia GPX
-    window._currentGpxMouseEnter = () => { map.getCanvas().style.cursor = "pointer"; };
-    window._currentGpxMouseLeave = () => { map.getCanvas().style.cursor = ""; };
-
-    window._currentGpxClickHandler = (e) => {
-      if (window._waypointJustClicked) return;
-
-      if (window._currentGpxPopup) {
-        window._currentGpxPopup.remove();
-        window._currentGpxPopup = null;
-      }
-
-      const box = document.createElement("div");
-      box.className = "gpx-popup-box";
-      box.style.font = "13px/1.4 system-ui, sans-serif";
-      box.innerHTML = `
-        <strong style="display:block;font-size:14px;color:#1d2318;margin-bottom:4px">Traccia GPX: ${escapeHtml(fileName)}</strong>
-        <div style="color:#5a6350;font-size:12px;margin-bottom:8px">
-          <span>Distanza: <strong>${distKm} km</strong></span> ·
-          <span>Dislivello: <strong>+${gainM} m</strong></span><br>
-          <span>Punti GPS: <strong>${coordinates.length}</strong></span> ·
-          <span>Waypoint: <strong>${waypoints.length}</strong></span>
-        </div>
-        <button type="button" class="gpx-remove-btn" style="width:100%;padding:6px 10px;background:#e63946;color:#fff;border:0;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px">🗑 Rimuovi traccia dalla mappa</button>
-      `;
-
-      const popup = new maplibregl.Popup({ offset: 10, maxWidth: "280px" })
-        .setLngLat(e.lngLat)
-        .setDOMContent(box)
-        .addTo(map);
-
-      window._currentGpxPopup = popup;
-
-      box.querySelector(".gpx-remove-btn").addEventListener("click", () => {
-        removeGpxTrackFromMap(fileName, lineLayerId, sourceId);
-      });
     };
 
-    map.on("mouseenter", lineLayerId, window._currentGpxMouseEnter);
-    map.on("mouseleave", lineLayerId, window._currentGpxMouseLeave);
-    map.on("click", lineLayerId, window._currentGpxClickHandler);
+    const meta = {
+      id: gpxRouteId,
+      name: fileName,
+      date: "",
+      distance_km: distKm,
+      duration_min: 0,
+      elevation_gain_m: gainM,
+      isGpx: true,
+      waypoints: waypoints
+    };
 
-    // Disegna ed attacca i popup ai Waypoint del file GPX sulla mappa
-    window._currentGpxMarkers = [];
-    const gpxEntry = { color: "#e63946", name: fileName, pois: waypoints, photos: [], markers: window._currentGpxMarkers };
+    // Aggiunge la traccia GPX nella memoria comune state.activeRoutes
+    state.activeRoutes.set(gpxRouteId, { feature, color, meta });
 
-    waypoints.forEach((wp) => {
-      if (window.Media && typeof window.Media.addPoiMarker === "function") {
-        window.Media.addPoiMarker(gpxEntry, wp);
-      }
-    });
+    // Disegna ed attacca i popup ai Waypoint
+    if (waypoints.length > 0) {
+      const gpxEntry = { color, name: fileName, pois: waypoints, photos: [], markers: [] };
+      waypoints.forEach((wp) => {
+        if (window.Media && typeof window.Media.addPoiMarker === "function") {
+          window.Media.addPoiMarker(gpxEntry, wp);
+        }
+      });
+      if (!window._gpxTrackMarkers) window._gpxTrackMarkers = new Map();
+      window._gpxTrackMarkers.set(gpxRouteId, gpxEntry.markers);
+    }
 
-    // Adatta lo zoom ed il centro della mappa all'estensione della traccia
-    map.fitBounds(bounds, { padding: 50, maxZoom: 16 });
-    showToast(`Traccia GPX caricata: ${fileName} (${distKm} km, ${waypoints.length} waypoint)`);
-    console.log(`[GPX] Caricata traccia "${fileName}" (${distKm} km) con ${coordinates.length} punti e ${waypoints.length} waypoint.`);
+    // Ridisegna la mappa ed il pannello di destra "Percorsi visualizzati"
+    redrawActiveRoutes();
+    renderTracksPanel();
+    fitToActive();
+
+    showToast(`Traccia GPX aggiunta: ${fileName} (${distKm} km, ${waypoints.length} waypoint)`);
+    console.log(`[GPX] Inserita traccia GPX "${fileName}" (id=${gpxRouteId}) in state.activeRoutes.`);
   } catch (err) {
     console.error("[GPX] Errore caricamento file GPX:", err);
     showToast(`Errore GPX: ${err.message}`, true);
   }
 }
 
-if (window.desktop && typeof window.desktop.onLoadGpxData === "function") {
+if (window.desktop && typeof window.desktop.onLoadGpxData === "function" && !window._gpxListenerRegistered) {
+  window._gpxListenerRegistered = true;
   window.desktop.onLoadGpxData(({ fileName, content }) => {
     parseAndRenderGpx(fileName, content);
   });
@@ -776,6 +670,12 @@ async function toggleRoute(id) {
 }
 
 function removeRoute(id) {
+  if (window._gpxTrackMarkers && window._gpxTrackMarkers.has(id)) {
+    const markers = window._gpxTrackMarkers.get(id) || [];
+    markers.forEach(m => m.remove());
+    window._gpxTrackMarkers.delete(id);
+  }
+
   state.activeRoutes.delete(id);
   window.Media?.remove(id);
   redrawActiveRoutes();
@@ -784,6 +684,13 @@ function removeRoute(id) {
 }
 
 function clearAllRoutes() {
+  if (window._gpxTrackMarkers) {
+    for (const markers of window._gpxTrackMarkers.values()) {
+      markers.forEach(m => m.remove());
+    }
+    window._gpxTrackMarkers.clear();
+  }
+
   state.activeRoutes.clear();
   window.Media?.clear();
   redrawActiveRoutes();
